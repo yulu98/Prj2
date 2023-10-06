@@ -1,0 +1,631 @@
+---
+title: "Project 2"
+author: Yu Lu
+description: "Project Gutenberg: Gather works of Virginia Woolf"
+date: 2023-10-05
+categories: [project 2, projects]
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, 
+                      message=FALSE, cache = TRUE)
+```
+
+## Question 1
+
+*Choose an author with over 5 distinct works (group_by gutenberg_works).  All works should have text.  Choose either all works or 5 random works.  Only use public domain data.*
+
+```{r, message=FALSE, warning=FALSE}
+# Load package library
+library(gutenbergr)
+library(tidyverse)
+library(usethis)
+library(tidytext)
+library(gridExtra)
+library(grid)
+library(png)
+library(ggplot2)
+library(tm)
+library(kableExtra)
+library(ggpubr)
+```
+
+```{r}
+# summarise the number of works by authors
+number_of_works <- gutenberg_works() %>%
+  group_by(author) %>%
+  summarise(now = length(title))
+
+# find out the number of works of Virginia Woolf
+woolf_now <- number_of_works %>%
+  filter(author == "Woolf, Virginia")
+
+# Retrieve all works by Virginia Woolf
+woolf_works <- gutenberg_works() %>%
+  filter(author == "Woolf, Virginia")
+
+# Filter out works with text and in the public domain
+woolf_works <- woolf_works %>% 
+  filter(has_text == TRUE, rights == "Public domain in the USA.")
+
+# Check the number of distinct works by Woolf
+num_works <- nrow(woolf_works)
+```
+
+The number of distinct works of Virginia Wolf is 5.
+
+## Question 2
+
+*Download the author's works using gutenberg_download and save the data as an RDS file, including title.  Make sure strip = TRUE.  The data should not be included in the repository (see usethis::use_git_ignore).  Have if statements that check if the data exists, downloads the data if not available (e.g. if we clone the repo), and reads the data from the saved RDS if it is available.*
+
+```{r, warning=FALSE, message=FALSE}
+data_file <- "woolf.rds"
+
+if (!file.exists(data_file)){
+  # Data file does not exist, download and save the data
+  woolf_books <- gutenberg_download(woolf_works$gutenberg_id, strip = TRUE)
+  saveRDS(woolf_books, file = "woolf.rds")}else{
+  # Data file already exists, load it
+  woolf_books <- readRDS(data_file)
+  }
+
+usethis::use_git_ignore(data_file)
+```
+
+The downloaded data of Virginia Woolf's work is stored in woolf.rds
+
+## Question 3 Sentimental Analysis
+
+*Produce a sentiment analysis by book by percentage completed in the book similar to the lecture.  Create a plot showing cumulative sentiment over time.*
+
+*Remove or adjust the data depending on words that may have been mischaracterized (similar to the "miss" issue in Austen's works)*
+
+First, plot a wordcloud for each book of Virginia Woolf.
+
+```{r}
+# Attached with row numbers (by book)
+original_books = woolf_books %>%
+  left_join(woolf_works[, 1:2], by = "gutenberg_id") %>%
+  group_by(gutenberg_id) %>%
+  mutate(linenumber = row_number()) %>%
+  ungroup()
+#head(original_books)
+
+# One token per row
+tidy_books = original_books %>% unnest_tokens(word, text)
+#head(tidy_books)
+
+# Define the list of 5 Gutenberg book IDs you want to analyze
+book_titles <- woolf_works$title
+
+# Create a directory to store the word cloud plot images if it doesn't exist
+if (!dir.exists("wordcloud_images")) {
+  dir.create("wordcloud_images")
+}
+
+# Set the working directory to the folder where the images will be saved
+setwd("wordcloud_images")
+
+# Loop through the book IDs and create word clouds
+for (book in book_titles) {
+  filtered_data <- tidy_books %>%
+    filter(title == book) %>%
+    count(word) %>%
+    arrange(desc(n)) %>%
+    slice(1:200L)
+  
+  png(filename = paste0(book, ".png"), width = 400, height = 300, 
+      units = "px", pointsize = 12, bg = "white")
+  
+  wordcloud::wordcloud(words = filtered_data$word, 
+                      freq = filtered_data$n, scale = c(4.5,0.4))
+  title(main = book)
+
+  dev.off()
+}
+
+wordcloud_plots <- list()
+for (i in 1:5) {
+  img <- readPNG(paste0(book_titles[i], ".png"))
+  wordcloud_plots[[i]] <- rasterGrob(img)
+}
+
+layout.matrix = matrix(c(1:5, 0), 2, 3)
+grid.arrange(grobs = wordcloud_plots, layout_matrix = layout.matrix)
+```
+
+From the above plots, we noticed the top words are all stop words. Now we filter out all the stop words and plot out the word clouds again.
+
+```{r}
+# filter the stop words
+# import stop words
+stop_words <- read.table("xpo6.txt")
+colnames(stop_words) <- c("word")
+#head(stop_words)
+
+#Filtering with join
+tidy_books = tidy_books %>% anti_join(stop_words, by = "word")
+
+# Set the working directory to the folder where the images will be saved
+setwd("wordcloud_images")
+
+# Loop through the book IDs and create word clouds
+for (book in book_titles) {
+  filtered_data <- tidy_books %>%
+    filter(title == book) %>%
+    count(word) %>%
+    arrange(desc(n)) %>%
+    slice(1:200L)
+  
+  png(filename = paste0(book, ".png"), width = 600, height = 400, 
+      units = "px", pointsize = 12, bg = "white")
+  
+  wordcloud::wordcloud(words = filtered_data$word, 
+                      freq = filtered_data$n, scale = c(3,0.3))
+  title(main = book)
+
+  dev.off()
+}
+
+wordcloud_plots <- list()
+for (i in 1:5) {
+  img <- readPNG(paste0(book_titles[i], ".png"))
+  wordcloud_plots[[i]] <- rasterGrob(img)
+}
+
+layout.matrix = matrix(c(1:5, 0), 2, 3)
+grid.arrange(grobs = wordcloud_plots, layout_matrix = layout.matrix)
+```
+
+Now we conduct sentiment analysis.
+
+```{r}
+# Top Words by Book after joining
+top_book_words = tidy_books %>%
+count(word, title) %>%
+arrange(desc(n)) %>%
+group_by(title)
+# (top_book_words %>% slice(1:2))
+
+# Sentiments and A little Tidying
+bing = tidytext::sentiments
+#head(bing)
+dupes = bing %>% janitor::get_dupes(word)
+
+bing = bing %>% # remove positive envy!
+anti_join(dupes %>% filter(sentiment == "positive"))
+
+#anyDuplicated(bing$word) == 0
+```
+
+First we check if there are words that may have been mischaracterized. 
+
+```{r}
+top_book_words %>% inner_join(bing, by = join_by(word)) %>% slice(1:2)
+```
+
+There is still "miss" being classified as negative. I would also see the word "like" as misclassified as positive. With that in mind, we will do the sentiment analysis.
+
+First, we have the sentiment trajectory:
+
+```{r}
+woolf_sentiment = tidy_books %>%
+  filter(word != "miss" | word != "like") %>%
+  inner_join(bing, by = join_by(word)) %>%
+  count(title, page = linenumber %/% 80, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+#head(woolf_sentiment)
+
+# woolf_sentiment %>%
+#   group_by(title) %>%
+#   slice(1:3)
+
+# Plotting the sentiment trajectory (ggplot2 loaded)
+ggplot(woolf_sentiment, aes(page, sentiment, fill = title)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  facet_wrap(~ title, ncol = 3, scales = "free_x")
+```
+
+Now we plot the cumulative sentiment with normalized book length
+
+```{r}
+# Plotting the cumulative sentiment (normalized book length)
+p <- woolf_sentiment %>%
+  group_by(title) %>%
+  mutate(sentiment = cumsum(sentiment), page = page/max(page)) %>%
+  ggplot(aes(page, sentiment, colour = title)) +
+  geom_line() + 
+  ylab("Cumulative Sentiment") + 
+  xlab("Pages(ish)")
+
+transparent_legend = theme(
+  legend.background = element_rect(fill = "transparent"),
+  legend.key = element_rect(fill = "transparent",
+  color = "transparent"))
+
+p + transparent_legend +
+  scale_color_brewer(type = "qual") +
+  scale_x_continuous(labels = scales::percent_format()) +
+  theme(legend.position = c(0.15, 0.3), text = element_text(size = 10)) +
+  guides(colour = guide_legend(title = "Book",
+  override.aes = list(linewidth = 2)))
+
+```
+
+The first discovery we can tell from the above plots is that most of Woolf's novels are pretty short expect Jacob's Room. This agree with the nature of Woolf's writings. As a nature of the stream of consciousness, there is no strong sign of positive or negative in Woolf's works. But the cumulative sentiments of Jacob's Room decreases overtime showed the underlying sadness from the void and emptiness writing itself. Also for Mrs. Dalloway, where the main character killed herself in the end, the cumulative sentiments also decreased, but very smoothly. Partly because this is a short book but may also because of the ambiguous writing style, with the slight mist of sadness.
+
+## Question 4
+
+*Randomly select 2 other authors with over 5 distinct works, download 5 random works from each. Combine these data with the original author and perform a topic model analysis with 3 topics and see how it breaks by author.*
+
+*Discuss what topics load moist highly to each topic.*
+
+*Repeat the analysis with more than 3 topics. Discuss how you chose the number of topics.*
+
+*Create plots showing the topics by book and words by topic.*
+
+Here I first want to compare the topics of the stream of consciousness writers but found this dataset does not have enough books from them. So I turned to compare Virginia Woolf's work with other two famous female writers. Frances Hodgson Burnett and Louisa May Alcott.
+
+```{r}
+# Retrieve all works by Louisa May Alcott and random select 5 books
+alcott_works <- gutenberg_works() %>%
+  filter(author == "Alcott, Louisa May")
+
+# Filter out works with text and in the public domain
+alcott_works <- alcott_works %>% 
+  filter(has_text == TRUE, rights == "Public domain in the USA.")
+
+# Check the number of distinct works by Alcott
+num_works <- nrow(alcott_works)
+
+# Choose 5 random works
+
+set.seed(123)
+alcott_works <- sample_n(alcott_works, 5)
+
+# Do the same thing with Burnett's work
+burnett_works <- gutenberg_works() %>%
+  filter(author == "Burnett, Frances Hodgson")
+
+# Filter out works with text and in the public domain
+burnett_works <- burnett_works %>% 
+  filter(has_text == TRUE, rights == "Public domain in the USA.")
+
+# Check the number of distinct works by Alcott
+num_works <- nrow(burnett_works)
+
+# Choose 5 random works
+burnett_works <- sample_n(burnett_works, 5)
+```
+
+```{r, include = FALSE}
+data("AssociatedPress", package = "topicmodels")
+
+comparison = tidy(AssociatedPress) %>%
+  group_by(term) %>%
+  summarise(AP = sum(count)) %>% # add up the counts
+  rename(word = term) %>%
+  inner_join(count(tidy_books, word, name = "Woolf")) %>%
+  mutate(AP = AP / sum(AP),
+  Woolf = Woolf / sum(Woolf),
+  diff = AP - Woolf) %>%
+  arrange(desc(abs(diff)))
+#head(comparison)
+```
+
+```{r, warning=FALSE, message=FALSE}
+data_file <- "alcott.rds"
+
+if (!file.exists(data_file)){
+  # Data file does not exist, download and save the data
+  alcott_books <- gutenberg_download(alcott_works$gutenberg_id, strip = TRUE)
+  saveRDS(alcott_books, file = "alcott.rds")}else{
+  # Data file already exists, load it
+ alcott_books <- readRDS(data_file)
+}
+
+usethis::use_git_ignore(data_file)
+```
+
+```{r, warning=FALSE, message=FALSE}
+data_file <- "burnett.rds"
+
+if (!file.exists(data_file)){
+  # Data file does not exist, download and save the data
+  burnett_books <- gutenberg_download(burnett_works$gutenberg_id, strip = TRUE)
+  saveRDS(burnett_books, file = "burnett.rds")}else{
+  # Data file already exists, load it
+ burnett_books <- readRDS(data_file)
+}
+
+usethis::use_git_ignore(data_file)
+```
+
+```{r}
+#Tidy up alcott's books
+comparison_books_1 = alcott_books %>%
+  left_join(alcott_works[, 1:2], by = "gutenberg_id") %>%
+  group_by(gutenberg_id) %>%
+  mutate(linenumber = row_number()) %>%
+  ungroup()
+#head(original_books)
+
+# One token per row
+tidy_books_1 = comparison_books_1 %>% unnest_tokens(word, text)
+
+#Filtering with join
+tidy_books_1 = tidy_books_1 %>% anti_join(stop_words, by = "word")
+
+# Top Words by Book after joining
+top_book_words_1 = tidy_books_1 %>%
+count(word, title) %>%
+arrange(desc(n)) %>%
+group_by(title)
+```
+
+```{r}
+#Tidy up burnett's books
+comparison_books_2 = burnett_books %>%
+  left_join(burnett_works[, 1:2], by = "gutenberg_id") %>%
+  group_by(gutenberg_id) %>%
+  mutate(linenumber = row_number()) %>%
+  ungroup()
+#head(original_books)
+
+# One token per row
+tidy_books_2 = comparison_books_2 %>% unnest_tokens(word, text)
+
+#Filtering with join
+tidy_books_2 = tidy_books_2 %>% anti_join(stop_words, by = "word")
+
+# Top Words by Book after joining
+top_book_words_2 = tidy_books_2 %>%
+count(word, title) %>%
+arrange(desc(n)) %>%
+group_by(title)
+```
+
+The most used words in these three writers works.
+
+```{r}
+top_book_words %>%
+  filter(word != "said" & word != "like" & word != "mr" & word != "mrs") %>% 
+  slice(1:3) %>% 
+  left_join(bing, by = join_by(word)) %>%
+  kable() %>%
+  kable_styling(font_size = 7)
+
+top_book_words_1 %>% 
+  filter(word != "said" & word != "like" & word != "mr" & word != "mrs") %>%
+  slice(1:3) %>% 
+  left_join(bing, by = join_by(word)) %>%
+  kable() %>%
+  kable_styling(font_size = 7)
+
+top_book_words_2 %>%
+  filter(word != "said" & word != "like" & word != "mr" & word != "mrs") %>%
+  slice(1:3) %>% 
+  left_join(bing, by = join_by(word)) %>%
+  kable() %>%
+  kable_styling(font_size = 7)
+
+```
+
+```{r}
+# combine three data frames
+tidy_combined <- bind_rows(list(tidy_books, tidy_books_1, tidy_books_2))
+
+# Bag of words: Count of words by Document
+tidy_freq = tidy_combined %>%
+dplyr::ungroup() %>%
+count(title, word, name = "count")
+
+# removes any words that are all numeric
+nonum = tidy_freq %>%
+filter(is.na(as.numeric(word)))
+
+# Creat a DocumentTermMatrix
+dtm = nonum %>%
+  count(title, word) %>%
+  tidytext::cast_dtm(document = title, term = word, value = n)
+unique_indexes = unique(dtm$i) # get the index of each unique value
+
+# # Normalize dtm
+# dtm = DocumentTermMatrix(dtm, control = list(normalize = TRUE))
+
+# let's try 3 topics
+lda = topicmodels::LDA(dtm, k = 3L, control = list(seed = 20231005))
+topics = tidy(lda, matrix = "beta")
+
+top_terms = topics %>%
+  group_by(topic) %>%
+  top_n(12, beta) %>% # get the top 12 beta by topic
+  ungroup() %>% # ungroup
+  arrange(topic, -beta) # arrange words in descending informativeness
+```
+
+First, we show the topics by book distribution
+
+```{r}
+p1 <- tidy_books %>% 
+  rename(term = word) %>%
+  left_join(top_terms, by = "term") %>%
+  group_by(title, topic) %>%
+  summarise(sum = sum(beta, na.rm = T)) %>%
+  na.omit() %>%
+  ggplot(aes(title, sum, fill = factor(topic))) + # plot beta by theme
+  geom_col(show.legend = FALSE) + # as a bar plot
+  facet_wrap(~ topic, scales = "free") + # which each topic in a separate plot
+  labs(x = NULL, y = "Beta") +  # no x label, change y label 
+  ylim(0, 0.3) +
+  labs(title = "Virginia Woolf") + 
+  theme(plot.title = element_text(size = 10),
+      plot.subtitle = element_text(size = 10),
+      axis.title = element_text(size = 10),
+      axis.text.x = element_text(size = 8, angle = 90, hjust = 0.8),
+      axis.text.y = element_text(size = 8, angle = 0, vjust = 0.8))
+
+p2 <- tidy_books_2 %>% 
+  rename(term = word) %>%
+  left_join(top_terms, by = "term") %>%
+  group_by(title, topic) %>%
+  summarise(sum = sum(beta, na.rm = T)) %>%
+  na.omit() %>%
+  ggplot(aes(title, sum, fill = factor(topic))) + # plot beta by theme
+  geom_col(show.legend = FALSE) + # as a bar plot
+  facet_wrap(~ topic, scales = "free") + # which each topic in a separate plot
+  labs(x = NULL, y = "Beta") +  # no x label, change y label 
+  ylim(0, 0.3) +
+  labs(title = "Louisa May Alcott") + 
+  theme(plot.title = element_text(size = 10),
+      plot.subtitle = element_text(size = 10),
+      axis.title = element_text(size = 10),
+      axis.text.x = element_text(size = 8, angle = 90, hjust = 0.8),
+      axis.text.y = element_text(size = 8, angle = 0, vjust = 0.8))
+
+p3 <- tidy_books_2 %>% 
+  rename(term = word) %>%
+  left_join(top_terms, by = "term") %>%
+  group_by(title, topic) %>%
+  summarise(sum = sum(beta, na.rm = T)) %>%
+  na.omit() %>%
+  ggplot(aes(title, sum, fill = factor(topic))) + # plot beta by theme
+  geom_col(show.legend = FALSE) + # as a bar plot
+  facet_wrap(~ topic, scales = "free") + # which each topic in a separate plot
+  labs(x = NULL, y = "Beta") +  # no x label, change y label 
+  ylim(0, 0.3) +
+  labs(title = "Frances Hodgson Burnett") + 
+  theme(plot.title = element_text(size = 10),
+      plot.subtitle = element_text(size = 10),
+      axis.title = element_text(size = 10),
+      axis.text.x = element_text(size = 8, angle = 90, hjust = 0.8),
+      axis.text.y = element_text(size = 8, angle = 0, vjust = 0.8))
+
+ggarrange(p1, p2, p3, ncol = 3, nrow = 1)
+```
+
+Now, we show the topics by author distribution
+
+```{r}
+works_combined <- rbind(woolf_works, alcott_works, burnett_works)
+
+tidy_combined %>%
+  left_join(works_combined[, c(1, 3)], by = "gutenberg_id") %>%
+  rename(term = word) %>%
+  left_join(top_terms, by = "term") %>%
+  group_by(author, topic) %>%
+  summarise(sum = sum(beta, na.rm = T)) %>%
+  na.omit() %>%
+  ggplot(aes(author, sum, fill = factor(topic))) + # plot beta by theme
+  geom_col(show.legend = FALSE) + # as a bar plot
+  facet_wrap(~ topic, scales = "free") + # which each topic in a separate plot
+  labs(x = NULL, y = "Beta") +  # no x label, change y label 
+  labs(title = "Topic by author distribution") + 
+  theme(plot.title = element_text(size = 20),
+      plot.subtitle = element_text(size = 10),
+      axis.title = element_text(size = 10),
+      axis.text.x = element_text(size = 8, angle = 40, hjust = 0.8),
+      axis.text.y = element_text(size = 8, angle = 0, vjust = 0.8))
+
+```
+
+Now we plot the words by topic distribution
+
+```{r}
+top_terms %>% # take the top terms
+  mutate(term = reorder(term, beta)) %>% # sort terms by beta value
+  ggplot(aes(term, beta, fill = factor(topic))) + # plot beta by theme
+  geom_col(show.legend = FALSE) + # as a bar plot
+  facet_wrap(~ topic, scales = "free") + # which each topic in a separate plot
+  labs(x = NULL, y = "Beta") + # no x label, change y label
+  coord_flip()
+```
+
+The three topics showed somewhat characters of these three ladies writing and their usage of famine words. But there is no clear distinctions between these three topics. The topic model analysis with 3 topics does not break by author very well.
+
+```{r}
+beta_wide = topics %>%
+  mutate(topic = paste0("topic", topic)) %>%
+  pivot_wider(names_from = topic, values_from = beta) %>%
+  filter(topic1 > .0001 |
+           topic2 > .0001 |
+           topic3 > .0001) %>%
+  mutate(log_ratio12 = log2(topic2 / topic1),
+         log_ratio13 = log2(topic3 / topic1),
+         log_ratio23 = log2(topic3 / topic2))
+
+lg_vec <- colnames(beta_wide)[5:7]
+plot_list <- list()
+
+for(i in lg_vec){
+  plot_list[[i]] <- beta_wide %>% 
+    mutate(term = reorder(term, eval(parse(text = i)))) %>%
+    group_by(eval(parse(text = i)) < 0) %>%
+    top_n(30, abs(eval(parse(text = i)))) %>%
+    ungroup() %>%
+    select(-`eval(parse(text = i)) < 0`) %>%
+    arrange(desc(eval(parse(text = i)))) %>%
+    ggplot(aes(term, eval(parse(text = i)))) +
+    geom_col(show.legend = FALSE) + 
+    coord_flip() + 
+    labs(y = i, x = "Word") +
+    theme(axis.text.y = element_text(size=7))
+}
+
+ggarrange(plot_list[[1]],plot_list[[2]],plot_list[[3]], labels = c("A", "B", "C"), ncol = 3, nrow = 1)
+```
+
+Form the log ratios of topic 1 and 2, we can see there are very limited values lower than 0 and those values are pretty close to 0, but there are very large absolute values for log ratios greater than 0. But for the log ratios of topic 1 and 3, the presentation is exactly the contrast. And the log ratios of topic 2 and 3 show very separate values.
+
+Now we try 4 topics,
+
+```{r}
+# let's try 4 topics
+lda = topicmodels::LDA(dtm, k = 4L, control = list(seed = 20231005))
+topics = tidy(lda, matrix = "beta")
+
+beta_wide = topics %>%
+  mutate(topic = paste0("topic", topic)) %>%
+  pivot_wider(names_from = topic, values_from = beta) %>%
+  filter(topic1 > .0001 |
+           topic2 > .0001 |
+           topic3 > .0001 |
+           topic4 > .0001) %>%
+  mutate(log_ratio12 = log2(topic2 / topic1),
+         log_ratio13 = log2(topic3 / topic1),
+         log_ratio14 = log2(topic4 / topic1),
+         log_ratio23 = log2(topic3 / topic2),
+         log_ratio24 = log2(topic4 / topic2),
+         log_ratio34 = log2(topic4 / topic3))  
+
+lg_vec <- colnames(beta_wide)[6:11]
+plot_list <- list()
+
+for(i in lg_vec){
+  plot_list[[i]] <- beta_wide %>% 
+    mutate(term = reorder(term, eval(parse(text = i)))) %>%
+    group_by(eval(parse(text = i)) < 0) %>%
+    top_n(20, abs(eval(parse(text = i)))) %>%
+    ungroup() %>%
+    select(-`eval(parse(text = i)) < 0`) %>%
+    arrange(desc(eval(parse(text = i)))) %>%
+    ggplot(aes(term, eval(parse(text = i)))) +
+    geom_col(show.legend = FALSE) + 
+    coord_flip() + 
+    labs(y = i, x = "Word") +
+    theme(axis.text.y = element_text(size=5, angle = 50, vjust = 0.8))
+}
+
+ggarrange(plot_list[[1]],plot_list[[2]],plot_list[[3]], 
+          plot_list[[4]],plot_list[[5]],plot_list[[6]],
+          labels = c("A", "B", "C"), ncol = 3, nrow = 2)
+
+```
+
+From the log ratio plots, the 4th topic doesn't seem very informative. So I will stick with the 3 topics analysis
+
+The above results show that there is no noticeable difference between this three author's writings. Female writers in the same era may share a similar way of writing.
+

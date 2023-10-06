@@ -1,0 +1,10 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+woolf.rds
+alcott.rds
+burnett.rds
+.Rdata
+.httr-oauth
+.DS_Store

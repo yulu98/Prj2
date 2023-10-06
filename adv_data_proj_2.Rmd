@@ -1,0 +1,387 @@
+---
+title: "Project 2"
+author: "Peter Liu"
+date: "2023-10-02"
+output: pdf_document
+---
+
+```{r, include=FALSE}
+library("gutenbergr")
+library("tidyverse")
+library("here")
+library("tidytext")
+library("janitor")
+library("topicmodels")
+library("reshape2")
+library("ggpubr")
+library("knitr")
+library("usethis")
+```
+
+I choose Lovecraft, H. P. (Howard Phillips) who is a famous horror novelist. The five works are "The Shunned House", "The Dunwich Horror", "The colour out of space", "The call of Cthulhu", "He".
+
+```{r, echo = F}
+works <- gutenberg_works()
+LH <- works %>% filter(author == "Lovecraft, H. P. (Howard Phillips)")
+LH <- LH[2:6,]
+book_id <- LH$gutenberg_id
+for (i in 1:5) {
+  if (!file.exists(here("", paste("book_", book_id[i], ".RDS", sep = "")))) {
+    temp <- gutenberg_download(book_id[i])
+    saveRDS(temp, file = here("", paste("book_", book_id[i], ".RDS", sep = "")))
+  }
+}
+
+for (i in 1:5) {
+  temp <- readRDS(paste("book_", book_id[i], ".RDS", sep = ""))
+  assign(paste("book_", book_id[i], sep = ""), temp)
+}
+```
+
+```{r, echo = F, results = 'hide'}
+origin_book <- rbind(book_31469, book_50133, book_68236, book_68283, book_68547)
+book <- c()
+for (i in 1:dim(origin_book)[1]) {
+  book <- c(book, unlist(LH[which(LH[,1] == as.numeric(origin_book[i, 1])), 2]))
+}
+origin_book['book'] = book
+origin_book = origin_book %>% select(-gutenberg_id) %>% group_by(book) %>% mutate(linenumber = row_number()) %>% ungroup()
+tidy_books <- origin_book %>% unnest_tokens(word, text)
+tidy_books <- tidy_books %>% filter(word != "don't")
+tidy_books= tidy_books %>% anti_join(stop_words, by = "word")
+top_book_words = tidy_books %>% count(book, word) %>% arrange(desc(n)) %>% group_by(book)
+```
+
+```{r, include = F}
+bing = tidytext::sentiments
+dupes = bing %>% janitor::get_dupes(word)
+bing = bing %>% anti_join(dupes %>% filter(sentiment == "positive"))
+LHsentiment = tidy_books %>% inner_join(bing, by = join_by(word)) %>% count(book, page = linenumber %/% 80, sentiment) %>% spread(sentiment, n, fill = 0) %>% mutate(sentiment = positive - negative)
+
+top_book_words %>% slice(1:10) %>% left_join(bing, by = join_by(word))
+```
+The sentiment by page is shown in Figure 1. To be honest, I am not surprised and would applaud the author that did a great job in horror. We can observe that the novels are not too long, but the sentiment is almost always negative. We perform the cumulative sentiment analysis in Figure 2. As we observed in Figure 1, expect for the novel 'He' (a very short one, early work of Lovecraft and originally written in Spanish), the rest of the novels shows rather great horror as story progresses, and the cummulative sentiment seems to be monetone decreasing. 
+
+```{r fig.cap="We can observe that the novels are not too long, but the sentiment is almost always negative. This implies the monetone cumulate sentiment in Figure 2.", out.width="400px", out.height="400px", echo = F, fig.align = 'center'}
+ggplot(LHsentiment, aes(page, sentiment, fill = book)) + 
+  geom_bar(stat = "identity", show.legend = F) + 
+  facet_wrap(~book, ncol = 3, scales = "free_x")
+```
+
+
+
+```{r fig.cap = "Expect for the novel 'He' (a very short one, early work of Lovecraft and originally written in Spanish), the rest of the novels shows rather great horror as story progresses.", echo = F, out.width="400px", out.height="400px", echo = F, fig.align = 'center'}
+LHsentiment %>% group_by(book) %>%
+  mutate(sentiment = cumsum(sentiment),
+         page = page/max(page)) %>%
+  ggplot(aes(page, sentiment, colour = book)) +
+  geom_line(linewidth = 1.25) + ylab("Cumulative Sentiment") + xlab("% Pages(ish)") +
+  theme(legend.background = element_rect(fill = "transparent"), legend.key = element_rect(fill = "transparent", color = "transparent")) +
+  scale_color_brewer(type = "qual") +
+  scale_x_continuous(labels = scales::percent_format()) +
+  theme(legend.position = c(0.3, 0.3), text = element_text(size = 20)) + 
+  guides(colour = guide_legend(title = "Book", override.aes = list(linewidth = 2)))
+```
+
+For the other authors, I choose the first one as "United States" with works "The United States Constitution", "1995 United States Congressional Address Book", "Copyright Law of the United States of America in Title 17 of the United States Code", "Copyright Law of the United States of America and Related Laws Contained in Title 17 of the United States Code, Circular 92", "Amendments to the United States Constitution". For the second one I choose Shakespeare with works "History of King Henry the Sixth, Second Part", "The History of King Henry the Sixth, Third Part", "The Tragedy of King Richard III", "The Comedy of Errors", "The Rape of Lucrece".
+For simplicity, I will abbreviate Lovecraft with "LH", United States as "US", abd Shakespeare as "SH".
+
+```{r, echo = F, results = 'hide'}
+US <- works %>% filter(author == "United States")
+US <- US[c(2, 4, 5, 7, 8),]
+book_id <- US$gutenberg_id
+for (i in 1:5) {
+  if (!file.exists(here("", paste("book_", book_id[i], ".RDS", sep = "")))) {
+    temp <- gutenberg_download(book_id[i])
+    saveRDS(temp, file = here("", paste("book_", book_id[i], ".RDS", sep = "")))
+  }
+}
+
+for (i in 1:5) {
+  temp <- readRDS(paste("book_", book_id[i], ".RDS", sep = ""))
+  assign(paste("book_", book_id[i], sep = ""), temp)
+}
+
+comparision1 <- rbind(book_5, book_251, book_252, book_4291, book_19581)
+book <- rep(0, dim(comparision1)[1])
+for (i in 1:dim(comparision1)[1]) {
+  book[i] <- unlist(US[which(US[,1] == as.numeric(comparision1[i, 1])), 2])
+}
+comparision1['book'] = book
+comparision1 = comparision1 %>% select(-gutenberg_id) %>% group_by(book) %>% mutate(linenumber = row_number()) %>% ungroup()
+tidy_comparision1 <- comparision1 %>% unnest_tokens(word, text) %>% filter(word != "202") %>% filter(word != "1") %>% filter(word != "225") %>% filter(word != "224") %>% filter(word != "239") %>% filter(word != "226") %>% filter(word != "20515")  %>% filter(word != "2") 
+
+ # %>% filter(word != "112") %>% filter(word != "111") %>% filter(word != "105") 
+tidy_comparision1= tidy_comparision1 %>% anti_join(stop_words, by = "word")
+top_comparision1 = tidy_comparision1 %>% count(book, word) %>% arrange(desc(n)) %>% group_by(book)
+
+# top_comparision1 %>% slice(1:5) %>% left_join(bing, by = join_by(word))
+```
+
+```{r, echo = F, results = 'hide'}
+SH <- works %>% filter(author == "Shakespeare, William")
+SH <- SH[6:10,]
+book_id <- SH$gutenberg_id
+for (i in 1:5) {
+  if (!file.exists(here("", paste("book_", book_id[i], ".RDS", sep = "")))) {
+    temp <- gutenberg_download(book_id[i])
+    saveRDS(temp, file = here("", paste("book_", book_id[i], ".RDS", sep = "")))
+  }
+}
+
+for (i in 1:5) {
+  temp <- readRDS(paste("book_", book_id[i], ".RDS", sep = ""))
+  assign(paste("book_", book_id[i], sep = ""), temp)
+}
+
+comparision2 <- rbind(book_1501, book_1502, book_1503, book_1504, book_1505)
+book <- rep(0, dim(comparision2)[1])
+for (i in 1:dim(comparision2)[1]) {
+  book[i] <- unlist(SH[which(SH[,1] == as.numeric(comparision2[i, 1])), 2])
+}
+comparision2['book'] = book
+comparision2 = comparision2 %>% select(-gutenberg_id) %>% group_by(book) %>% mutate(linenumber = row_number()) %>% ungroup()
+tidy_comparision2 <- comparision2 %>% unnest_tokens(word, text)
+tidy_comparision2 <- tidy_comparision2 %>% filter(word != "thou") %>% filter(word != "thee") %>% filter(word != "thy")
+tidy_comparision2= tidy_comparision2 %>% anti_join(stop_words, by = "word")
+top_comparision2 = tidy_comparision2 %>% count(book, word) %>% arrange(desc(n)) %>% group_by(book)
+
+top_comparision2 %>% slice(1:10) %>% left_join(bing, by = join_by(word))
+```
+We give the highest frequency words by author by book in the three tables in the Appendix. From top to bottom, we have LH, US, and SH. 
+
+```{r, echo = F}
+top_book = tidy_books %>% count(book, word) %>% arrange(desc(n)) 
+t1 <- top_book %>% slice(1:10) %>% left_join(bing, by = join_by(word))
+
+top_comparision1 = tidy_comparision1 %>% count(book, word) %>% arrange(desc(n)) 
+t2 <- top_comparision1 %>% slice(1:10) %>% left_join(bing, by = join_by(word))
+
+t2$book[which(t2$book == "Copyright Law of the United States of America and Related Laws Contained in Title 17 of the United States Code, Circular 92")] = "Title 17, Circular 92"
+
+top_comparision2 = tidy_comparision2 %>% count(book, word) %>% arrange(desc(n)) 
+t3 <- top_comparision2 %>% slice(1:10) %>% left_join(bing, by = join_by(word))
+```
+
+We perform LDA on the combined data set. We first use three topics. A first thing I would admit is that I observed a lot of numbers in the US works. This is not surprising, as the works are law and regulation related. Yet too many numbers cause problem, i.e. there are too many section indexes as "1", "2", which really hinders the topic analysis and make the topics almost identical. I did an (almost) post-selection to get rid of the section numbers, but I kept some of the law/act/bill numbers , as in the analysis if there is a topic related to law and politics, these numbers can serve as indicator of the underlying political sentiment. Second, I notice that since SH wrote in ancient English, "thee","thy", etc. are not removed in stopping word and I have to remove it mannually. After the cleaning above, I first calculate how each author corresponds to each topic. I calculate the cummualtive topic beta values for each word from the author (counting repeatedly by occurence). Also, to allow comparison I also normalize the score with the length of the author's text. I plot the results in Figure 3. As we can observe there is a distinct pattern for each of the author/topic, with LH on 1st topic, SH on 3rd topic, and US ont 2nd topic. 
+
+We then look into how exactly the topic differs and what they corresponds to. To this end I plot the word beta values by each topic. Not surprising, topic 1 corresponds to words mostly appears in LH, such as "strange", "night", "horror", etc. I will denote the 1st topic as horror. Topic 2 corresponds to words mostly appears in US, such as "section", "copyright", "act", etc. I will denote the 2nd topic as law. Topic 3 corresponds to words mostly appears in SH, such as "king", "lord", "queen", etc. I will denote the 3rd topic as royal. 
+
+```{r, echo = F, results = 'hide'}
+tidy_comb <- rbind(tidy_books, tidy_comparision1, tidy_comparision2)
+dtm = tidy_comb %>% count(book, word) %>%
+  tidytext::cast_dtm(document = book, term = word, value = n)
+unique_indexes = unique(dtm$i)
+
+lda = topicmodels::LDA(dtm, k = 3L, control = list(seed = 20231003))
+topics = tidy(lda, matrix = "beta")
+```
+
+```{r, echo = F}
+
+if (!file.exists(here("", "topic_book.RDS"))) {
+  n = dim(tidy_books)[1]
+  res1 <- rep(0, 3)
+  for (i in 1:n) {
+    temp <- tidy_books$word[i]
+    res1 <- res1 + topics[which(topics$term == temp), 3]
+  }
+  
+  n = dim(tidy_comparision1)[1]
+  res2 <- rep(0, 3)
+  for (i in 1:n) {
+    temp <- tidy_comparision1$word[i]
+    res2 <- res2 + topics[which(topics$term == temp), 3]
+  }
+  
+  n = dim(tidy_comparision2)[1]
+  res3 <- rep(0, 3)
+  for (i in 1:n) {
+    temp <- tidy_comparision2$word[i]
+    res3 <- res3 + topics[which(topics$term == temp), 3]
+  }
+  
+  df <- data.frame(
+    book = rep(c("LH", "US", "SH"), each = 3),
+    cum_beta = c(res1$beta, res2$beta, res3$beta),
+    topic = rep(1:3, 3)
+  )
+  
+  res1 = as.vector(res1 / dim(tidy_books)[1])
+  res2 = as.vector(res2 / dim(tidy_comparision1)[1])
+  res3 = as.vector(res3 / dim(tidy_comparision2)[1])
+  
+  df_scale <- data.frame(
+    book = rep(c("LH", "US", "SH"), each = 3),
+    scale_beta = c(res1$beta, res2$beta, res3$beta),
+    topic = rep(1:3, 3)
+  )
+  
+  saveRDS(df, "topic_book.RDS")
+  saveRDS(df_scale, "topic_book_scale.RDS")
+}
+df <- readRDS("topic_book.RDS")
+df_scale <- readRDS("topic_book_scale.RDS")
+
+p1 <- df %>% ggplot(aes(topic, cum_beta, fill = factor(book))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ book, scales = "free") +
+  labs(x = NULL, y = "Beta") + 
+  coord_flip()
+
+p2 <- df_scale %>% ggplot(aes(topic, scale_beta, fill = factor(book))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ book, scales = "free") +
+  labs(x = NULL, y = "Beta") + 
+  coord_flip()
+
+```
+
+
+```{r fig.cap = "A: Cummulative topic for the three authors. B: Normalized topic for the three authors. We observe that the trend is consistent with or without normalization. Also, the LDA separates the three authors, with LH on 1st topic, SH on 3rd topic, and US ont 2nd topic.", echo = F, out.width="400px", out.height="400px", fig.align = 'center'}
+ggarrange(p1, p2, labels = c("A", "B"), ncol = 1, nrow = 2)
+```
+
+```{r fig.cap= "Word by the three topics. Once again, and consistent as in previous figure, 1st topic contains words mostly from LH, 2nd topic contains words mostly from US, and 3rd topic contains words mostly from SH", echo = F, out.width="400px", out.height="400px", echo = F, fig.align = 'center'}
+top_terms = topics %>% group_by(topic) %>%
+  top_n(20, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+
+top_terms %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  labs(x = NULL, y = "Beta") + 
+  coord_flip() + theme(axis.text.x = element_text(angle=45, hjust = 1))
+```
+
+```{r, echo = F}
+beta_wide = topics %>% 
+  mutate(topic = paste0("topic", topic)) %>%
+  pivot_wider(names_from = topic, values_from = beta) %>% filter(topic1 > .001 | topic2 > .001 | topic3 > .001) %>% mutate(log_ratio1 = log2(topic2 / topic1), log_ratio2 = log2(topic3/ topic1), log_ratio3 = log2(topic3/ topic2))
+
+temp1 <- beta_wide %>% mutate(term = reorder(term, log_ratio1))
+p1 <- temp1[c(1:15, (dim(temp1)[1] - 14):dim(temp1)[1]),]  %>% ggplot(aes(term, log_ratio1)) +
+geom_col(show.legend = FALSE) + 
+coord_flip() +
+    theme(axis.text.y = element_text(size=5)) 
+
+temp2 <- beta_wide %>% mutate(term = reorder(term, log_ratio2))
+p2 <- temp2[c(1:15, (dim(temp2)[1] - 14):dim(temp2)[1]),]  %>% ggplot(aes(term, log_ratio2)) +
+geom_col(show.legend = FALSE) + 
+coord_flip() +
+    theme(axis.text.y = element_text(size=5)) 
+
+temp3 <- beta_wide %>% mutate(term = reorder(term, log_ratio3))
+p3 <- temp3[c(1:15, (dim(temp3)[1] - 14):dim(temp3)[1]),]  %>% ggplot(aes(term, log_ratio3)) +
+geom_col(show.legend = FALSE) + 
+coord_flip() +
+    theme(axis.text.y = element_text(size=5)) 
+```
+
+I then analyze the contrast between the topics. I let the first ratio be topic2/topic1, second be topic3/ topic1, and third topic3/topic2. I plot the results in Figure 5. It is clear that the US (represented by the numbers) shows great positive difference in ratio 1, which is as expect, relatively less difference in ratio 2 but still positive, which make sense as some of the "royal" term such as lord can appear in law & government related work, and has no difference in ratio 3. Similarly, LH shows great negative difference in ratio 1 and 2 as expected, but also great postive difference in ratio 3. This might resort to the fact that some of the greatest horrors in the novel are addressed as lord. Lastly, SH has no difference in ratio 1, has great difference in ratio 2 and 3. To conclude, we would argue (only heuristically) that the topic law and horror are relatively independent, and topic royal roughly bridges the two topics. 
+
+```{r fig.cap = "A: difference with ratio = topic2/topic1; B: difference with ratio = topic3/topic1; A: difference with ratio = topic3/topic2.", echo = F, fig.align = 'center'}
+ggarrange(p1, p2, p3, labels = c("A", "B", "C"), ncol = 2, nrow = 2)
+```
+
+```{r, echo = F}
+lda = topicmodels::LDA(dtm, k = 4L, control = list(seed = 20231003))
+topics = tidy(lda, matrix = "beta")
+top_terms = topics %>% group_by(topic) %>%
+  top_n(20, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+```
+
+```{r fig.cap="We now use four topics for LDA analysis. We observe that the topic law is separated in two: the new topic 1 and 2, one more on the government side and another more on copyright. The new topic 3 and 4 corresponds to royal and horror which seems to change very little.", fig.align = 'center', echo = F}
+top_terms %>%
+  mutate(term = reorder(term, beta)) %>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  labs(x = NULL, y = "Beta") + 
+  coord_flip() + theme(axis.text.y = element_text(size=5))
+```
+
+I then tried for the four topic analysis. We observe that topic law is further separated into two: the new topic 1 and 2, one more on the government side and another more on copyright. The new topic 3 and 4 corresponds to royal and horror which seems to change very little. The difference patterns consists with the three topic case but seems to be more clear. To be more specfic, we observe postive difference in C, E, F, all involves with log ratio with topic 4 in the nominator, etc.
+
+I think the choice of topic number is very similar as in PCA or hierarchical clustering - if you know the ground truth (i.e. if you know the books in authors are consistent and the authors are different) I would suggest sticking with the number of author. If you don't know the ground truth, or the authors are very similar, I would say using a forward selection starting with 2 topics and incearse the topic number to see if there are any differences. Note that, when trying for more topics, the difference between topics and authors becomes more clear compared to the 3 authors case. Yet  still, too many topics will make analysis difficult, as the comparison plot is in n choose 2 and grows in quadratic. I don't think the difference plots are a good way of doing topic classification - some loss functions or goodness-of-fit method should works better. I think there should be methods like these already developed, but I am new to the field and not so sure. 
+
+```{r, echo = F}
+beta_wide = topics %>% 
+  mutate(topic = paste0("topic", topic)) %>%
+  pivot_wider(names_from = topic, values_from = beta) %>% filter(topic1 > .001 | topic2 > .001 | topic3 > .001 | topic4 > .001) %>% mutate(log_ratio1 = log2(topic2 / topic1), log_ratio2 = log2(topic3/ topic1), log_ratio3 = log2(topic4/ topic1), log_ratio4 = log2(topic3/ topic2), log_ratio5 = log2(topic4/ topic2), log_ratio6 = log2(topic4/ topic3))
+
+temp1 <- beta_wide %>% mutate(term = reorder(term, log_ratio1))
+p1 <- temp1[c(1:15, (dim(temp1)[1] - 14):dim(temp1)[1]),]  %>% ggplot(aes(term, log_ratio1)) +
+geom_col(show.legend = FALSE) + 
+coord_flip() + theme(axis.text.y = element_text(size=7))
+
+temp2 <- beta_wide %>% mutate(term = reorder(term, log_ratio2))
+p2 <- temp2[c(1:15, (dim(temp2)[1] - 14):dim(temp2)[1]),]  %>% ggplot(aes(term, log_ratio2)) +
+geom_col(show.legend = FALSE) + 
+coord_flip()+ theme(axis.text.y = element_text(size=7))
+
+temp3 <- beta_wide %>% mutate(term = reorder(term, log_ratio3))
+p3 <- temp3[c(1:15, (dim(temp3)[1] - 14):dim(temp3)[1]),]  %>% ggplot(aes(term, log_ratio3)) +
+geom_col(show.legend = FALSE) + 
+coord_flip()+ theme(axis.text.y = element_text(size=7))
+
+temp4 <- beta_wide %>% mutate(term = reorder(term, log_ratio4))
+p4 <- temp4[c(1:15, (dim(temp4)[1] - 14):dim(temp4)[1]),]  %>% ggplot(aes(term, log_ratio4)) +
+geom_col(show.legend = FALSE) + 
+coord_flip()+ theme(axis.text.y = element_text(size=7))
+
+temp5 <- beta_wide %>% mutate(term = reorder(term, log_ratio5))
+p5 <- temp5[c(1:15, (dim(temp5)[1] - 14):dim(temp5)[1]),]  %>% ggplot(aes(term, log_ratio5)) +
+geom_col(show.legend = FALSE) + 
+coord_flip()+ theme(axis.text.y = element_text(size=7))
+
+temp6 <- beta_wide %>% mutate(term = reorder(term, log_ratio6))
+p6 <- temp6[c(1:15, (dim(temp6)[1] - 14):dim(temp3)[1]),]  %>% ggplot(aes(term, log_ratio6)) +
+geom_col(show.legend = FALSE) + 
+coord_flip()+ theme(axis.text.y = element_text(size=7))
+```
+
+```{r fig.cap = "A: difference with ratio = topic2/topic1; B: difference with ratio = topic3/topic1.", echo = F, fig.align = 'center', out.width="400px", out.height="400px"}
+ggarrange(p1, p2, labels = c("A", "B"), ncol = 2, nrow = 1)
+```
+
+```{r fig.cap = "C: difference with ratio = topic4/topic1; D: difference with ratio = topic3/topic2.", echo = F, fig.align = 'center', out.width="400px", out.height="400px"}
+ggarrange(p3, p4, labels = c("C", "D"), ncol = 2, nrow = 1)
+```
+
+```{r fig.cap = "E: difference with ratio = topic4/topic2; F: difference with ratio = topic4/topic3.", echo = F, fig.align = 'center', out.width="400px", out.height="400px"}
+ggarrange(p5, p6, labels = c("E", "F"), ncol = 2, nrow = 1)
+```
+
+
+```{r, results='asis', eval=(opts_knit$get('rmarkdown.pandoc.to') == 'latex')}
+cat('\\pagebreak')
+```
+
+## Appendix
+
+
+
+```{r, echo = F}
+kable(t1)
+```
+
+```{r, echo = F}
+kable(t2)
+```
+
+```{r, echo = F}
+kable(t3)
+```
+
+
+
+
+
+
+
